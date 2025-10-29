@@ -1,17 +1,20 @@
 import torch
-import os
-import math
-import random
 import numpy as np
 from PIL import Image
-import cv2
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.nn import init
 from torchvision import transforms
-from warmup_scheduler import GradualWarmupScheduler
+from torch.utils.data.dataset import Dataset
+import random
+import matplotlib.pyplot as plt
+import cv2
+import numpy as np
+import os
+import math
+import torch.nn as nn
 from skimage import measure
+from warmup_scheduler import GradualWarmupScheduler
+import torch.nn.functional as F
+import os
+from torch.nn import init
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
@@ -29,6 +32,13 @@ def weights_init_xavier(m):
     classname = m.__class__.__name__
     if classname.find('Conv2d') != -1 and classname.find('SplAtConv2d') == -1:
         init.xavier_normal(m.weight.data)
+
+
+# def weights_init_xavier(m):
+#     classname = m.__class__.__name__
+#     if classname.find('Conv2d') != -1:
+#         # init.kaiming_normal_(m.weight.data,a=0, mode='fan_in', nonlinearity='leaky_relu')
+#         init.xavier_normal(m.weight.data)
 
 
 def weights_init_kaiming(m):
@@ -70,9 +80,9 @@ def random_crop(img, mask, patch_size, pos_prob=None):
     h, w = img.shape
     if min(h, w) < patch_size:
         img = np.pad(img, ((0, max(h, patch_size) - h), (0, max(w, patch_size) - w)),
-                     mode='constant')  # Pad the shorter side to match patch_size
+                     mode='constant')  # 将不足 256的一边填充至256
         mask = np.pad(mask, ((0, max(h, patch_size) - h), (0, max(w, patch_size) - w)),
-                      mode='constant')  # Apply the same transformation to the label
+                      mode='constant')  # label 与image 进行相同的变换
         h, w = img.shape
 
     while 1:
@@ -101,25 +111,29 @@ def Denormalization(img, img_norm_cfg):
 
 
 def get_img_norm_cfg(dataset_name, dataset_dir):
-    # Predefined normalization configurations for known datasets
-    norm_configs = {
-        'NUAA-SIRST': dict(mean=101.06385040283203, std=34.619606018066406),
-        'NUDT-SIRST': dict(mean=107.80905151367188, std=33.02274703979492),
-        'IRSTD-1K': dict(mean=87.4661865234375, std=39.71953201293945),
-        'NUDT-SIRST-Sea': dict(mean=43.62403869628906, std=18.91838264465332),
-        'IRDST-real': {'mean': 101.54053497314453, 'std': 56.49856185913086}
-    }
-
-    # SIRST datasets 2-7 share the same normalization as NUAA-SIRST
-    sirst_datasets = ['SIRST2', 'SIRST3', 'SIRST4', 'SIRST5', 'SIRST6', 'SIRST7']
-    for sirst_dataset in sirst_datasets:
-        norm_configs[sirst_dataset] = norm_configs['NUAA-SIRST']
-
-    # Return predefined config if available, otherwise compute from dataset
-    if dataset_name in norm_configs:
-        return norm_configs[dataset_name]
+    if dataset_name == 'NUAA-SIRST':
+        img_norm_cfg = dict(mean=101.06385040283203, std=34.619606018066406)
+    elif dataset_name == 'NUDT-SIRST':
+        img_norm_cfg = dict(mean=107.80905151367188, std=33.02274703979492)
+    elif dataset_name == 'IRSTD-1K':
+        img_norm_cfg = dict(mean=87.4661865234375, std=39.71953201293945)
+    elif dataset_name == 'SIRST2':
+        img_norm_cfg = dict(mean=101.06385040283203, std=34.619606018066406)
+    elif dataset_name == 'SIRST3':
+        img_norm_cfg = dict(mean=101.06385040283203, std=34.619606018066406)
+    elif dataset_name == 'NUDT-SIRST-Sea':
+        img_norm_cfg = dict(mean=43.62403869628906, std=18.91838264465332)
+    elif dataset_name == 'SIRST4':
+        img_norm_cfg = dict(mean=101.06385040283203, std=34.619606018066406)
+    elif dataset_name == 'SIRST5':
+        img_norm_cfg = dict(mean=101.06385040283203, std=34.619606018066406)
+    elif dataset_name == 'SIRST6':
+        img_norm_cfg = dict(mean=101.06385040283203, std=34.619606018066406)
+    elif dataset_name == 'SIRST7':
+        img_norm_cfg = dict(mean=101.06385040283203, std=34.619606018066406)
+    elif dataset_name == 'IRDST-real':
+        img_norm_cfg = {'mean': 101.54053497314453, 'std': 56.49856185913086}
     else:
-        # Compute normalization from actual dataset images
         with open(dataset_dir + '/' + dataset_name + '/img_idx/train_' + dataset_name + '.txt', 'r') as f:
             train_list = f.read().splitlines()
         with open(dataset_dir + '/' + dataset_name + '/img_idx/test_' + dataset_name + '.txt', 'r') as f:
@@ -139,7 +153,8 @@ def get_img_norm_cfg(dataset_name, dataset_dir):
             img = np.array(img, dtype=np.float32)
             mean_list.append(img.mean())
             std_list.append(img.std())
-        return dict(mean=float(np.array(mean_list).mean()), std=float(np.array(std_list).mean()))
+        img_norm_cfg = dict(mean=float(np.array(mean_list).mean()), std=float(np.array(std_list).mean()))
+    return img_norm_cfg
 
 
 def get_optimizer(net, optimizer_name, scheduler_name, optimizer_settings, scheduler_settings):
@@ -154,10 +169,17 @@ def get_optimizer(net, optimizer_name, scheduler_name, optimizer_settings, sched
         optimizer = torch.optim.SGD(net.parameters(), lr=optimizer_settings['lr'],
                                     momentum=0.9,
                                     weight_decay=scheduler_settings['weight_decay'])
+    # elif optimizer_name == 'AdamW':
+    #     optimizer = torch.optim.AdamW(net.parameters(), lr=optimizer_settings['lr'], betas=optimizer_settings['betas'],
+    #                                   eps=optimizer_settings['eps'], weight_decay=optimizer_settings['weight_decay'],
+    #                                   amsgrad=optimizer_settings['amsgrad'])
 
     if scheduler_name == 'MultiStepLR':
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=scheduler_settings['step'],
                                                          gamma=scheduler_settings['gamma'])
+    # elif scheduler_name == 'DNACosineAnnealingLR':
+    #     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=scheduler_settings['epochs'],
+    #                                                            eta_min=scheduler_settings['eta_min'])
     elif scheduler_name == 'CosineAnnealingLR':
         warmup_epochs = 10
         scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=scheduler_settings['epochs'] - warmup_epochs,
@@ -172,7 +194,17 @@ def get_optimizer(net, optimizer_name, scheduler_name, optimizer_settings, sched
                                            after_scheduler=scheduler_cosine)
 
     elif scheduler_name == 'CosineAnnealingLRw0':
+        # warmup_epochs = 0
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=scheduler_settings['epochs'], eta_min=scheduler_settings['eta_min'])
+        # scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=scheduler_settings['epochs'] - warmup_epochs,
+        #                                                               eta_min=1e-5)
+        # scheduler = GradualWarmupScheduler(optimizer, multiplier=1, total_epoch=warmup_epochs,
+        #                                    after_scheduler=scheduler_cosine)
+
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=scheduler_settings['T_max'],
+        #                                                        eta_min=scheduler_settings['eta_min'],
+        #                                                        last_epoch=scheduler_settings['last_epoch'])
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=scheduler_settings['epochs'], eta_min=scheduler_settings['eta_min'])
 
     return optimizer, scheduler
 
