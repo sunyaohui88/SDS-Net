@@ -14,22 +14,18 @@ import torch
 from skimage import measure
 
 
-def _normalize_target_shape(target):
-    """Normalize target tensor shape to 4D for consistent processing.
-
-    Args:
-        target: Target tensor (3D or 4D)
-
-    Returns:
-        Normalized target tensor
-    """
-    target = _normalize_target_shape(target)
-    return target
-
-
 def cal_tp_pos_fp_neg(output, target, nclass, score_thresh):
     predict = (output > score_thresh).float()
-    target = _normalize_target_shape(target)
+    if len(target.shape) == 3:
+        print('？？？？')  # 加一个维度 使得target与 output的size一致
+        target = target.unsqueeze(dim=0)
+        # target = np.expand_dims(target.float(), axis=1)
+        target.to('cuda', torch.float)
+
+    elif len(target.shape) == 4:
+        target = target.float()
+    else:
+        raise ValueError("Unknown target dimension")
     # 现在predict中高于阈值的部分为全1矩阵   target是GT
 
     intersection = predict * ((predict == target).float())
@@ -283,7 +279,12 @@ class PDFA():
 
 
 def batch_pix_accuracy(output, target):
-    target = _normalize_target_shape(target)
+    if len(target.shape) == 3:
+        target = np.expand_dims(target.float(), axis=1)
+    elif len(target.shape) == 4:
+        target = target.float()
+    else:
+        raise ValueError("Unknown target dimension")
 
     assert output.shape == target.shape, "Predict and Label Shape Don't Match"
     predict = (output > 0).float()
@@ -298,7 +299,12 @@ def batch_intersection_union(output, target):
     maxi = 1
     nbins = 1
     predict = (output > 0).float()
-    target = _normalize_target_shape(target)
+    if len(target.shape) == 3:
+        target = np.expand_dims(target.float(), axis=1)
+    elif len(target.shape) == 4:
+        target = target.float()
+    else:
+        raise ValueError("Unknown target dimension")
     intersection = predict * ((predict == target).float())
 
     area_inter, _ = np.histogram(intersection.cpu(), bins=nbins, range=(mini, maxi))
@@ -377,16 +383,16 @@ parser = argparse.ArgumentParser(description="PyTorch BasicIRSTD test")
 parser.add_argument('--ROC_thr', type=int, default=10, help='num')
 parser.add_argument("--model_names", default=['SDSNet'], type=list,
                     help="model_name: 'ACM', 'Ours01', 'DNANet', 'ISNet', 'ACMNet', 'Ours01', 'ISTDU-Net', 'U-Net', 'RISTDnet'")
-parser.add_argument("--pth_dirs", default=['/NUDT-SIRST/SDSNet_673_best.pth.tar'], type=list)
-parser.add_argument("--dataset_dir", default=r'/home/boss/syh/SDSNet-main/datasets/NUDT-SIRST', type=str, help="train_dataset_dir")
+parser.add_argument("--pth_dirs", default=['/NUDT-SIRST/SDSNet_628_best.pth.tar'], type=list)
+parser.add_argument("--dataset_dir", default=r'/home/boss/syh/SCTransNet-main/datasets', type=str, help="train_dataset_dir")
 parser.add_argument("--dataset_names", default=['NUDT-SIRST'], type=list,
                     help="dataset_name: 'NUAA-SIRST', 'NUDT-SIRST', 'IRSTD-1K', 'SIRST3', 'NUDT-SIRST-Sea'")
 parser.add_argument("--img_norm_cfg", default=None, type=dict,
                     help="specific a img_norm_cfg, default=None (using img_norm_cfg values of each dataset)")
 parser.add_argument("--save_img", default=False, type=bool, help="save image of or not")
-parser.add_argument("--save_img_dir", type=str, default=r'/home/boss/syh/SDSNet-main/Result',
+parser.add_argument("--save_img_dir", type=str, default=r'/home/boss/syh/SCTransNet-main/Result',
                     help="path of saved image")
-parser.add_argument("--save_log", type=str, default=r'/home/boss/syh/SDSNet-main/log', help="path of saved .pth")
+parser.add_argument("--save_log", type=str, default=r'/home/boss/syh/SCTransNet-main/log', help="path of saved .pth")
 parser.add_argument("--threshold", type=float, default=0.5)
 
 global opt
@@ -402,8 +408,8 @@ def test():
     # 计算nIOU 完全OK
     nIoU_metric = SamplewiseSigmoidMetric(nclass=1, score_thresh=0)
 
-    # Calculate PD/FA metrics
-    eval_05 = PDFA()
+    # 计算PD_FA   完全OK
+    eval_05 = PD_FA()
     ROC_05 = ROCMetric05(nclass=1, bins=10)
     config_vit = config.get_config()
 
@@ -502,13 +508,3 @@ if __name__ == '__main__':
                     print('\n')
                     opt.f.write('\n')
         opt.f.close()
-
-
-def main():
-    """Main function for command-line entry point."""
-    # The argument parsing and testing logic is already handled above
-    pass
-
-
-if __name__ == '__main__':
-    main()
